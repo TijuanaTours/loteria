@@ -36,7 +36,8 @@
     <div id="status">No parseado aún.</div>
     <div id="summary"></div>
     <div style="margin-top:8px">
-      <button id="generate" disabled>Generar boleto (6 números)</button>
+      <button id="generate">Generar boleto (6 números)</button>
+      <button id="generate-top" style="margin-left:8px">Generar boleto (Top 6 más frecuentes)</button>
       <button id="download-data" disabled style="margin-left:8px">Descargar datos CSV</button>
     </div>
     <div class="nums" id="ticket"></div>
@@ -48,7 +49,23 @@
   </div>
 
   <!-- pdf.js desde CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.8.162/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.8.162/pdf.min.js">    // Nuevo botón: Top 6 más frecuentes
+    document.addEventListener('DOMContentLoaded', ()=>{
+      const btnTop = document.getElementById('generate-top');
+      if(btnTop){
+        btnTop.addEventListener('click', ()=>{
+          const freqList = [];
+          for(let i=1;i<=56;i++) freqList.push({num:i, freq:frequencies[i]});
+          freqList.sort((a,b)=>b.freq - a.freq);
+          const picked = freqList.slice(0,6).map(x=>x.num).sort((a,b)=>a-b);
+          ticketDiv.innerHTML = '';
+          picked.forEach(n=>{
+            const el = document.createElement('div'); el.className='num'; el.textContent=n.toString().padStart(2,'0'); ticketDiv.appendChild(el);
+          });
+        });
+      }
+    });
+</script>
   <script>
     // pdf.js worker config (cdns)
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.8.162/pdf.worker.min.js';
