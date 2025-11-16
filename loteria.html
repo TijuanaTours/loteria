@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Generador Melate — desde PDF histórico</title>
+  <style>
+    body{font-family:Inter,system-ui,Segoe UI,Arial;margin:16px;background:#f7fbff;color:#062244}
+    .card{background:white;padding:16px;border-radius:12px;box-shadow:0 6px 20px rgba(6,34,68,0.08);margin-bottom:12px}
+    button{cursor:pointer;padding:8px 12px;border-radius:8px;border:1px solid #0b63b8;background:#0b63b8;color:white}
+    input[type=file]{display:block}
+    .nums{display:flex;gap:8px;margin-top:8px}
+    .num{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;background:#e6f0fb}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:6px;border-bottom:1px solid #eee;text-align:center}
+  </style>
+</head>
+<body>
+  <h2>Generador de boleto Melate (1–56) — desde PDF histórico</h2>
+  <div class="card">
+    <p>1) Descarga el PDF histórico de resultados (si aún no lo tienes): <a href="https://www.gob.mx/cms/uploads/attachment/file/79669/Hist_rico_Melate.pdf" target="_blank">Hist_rico_Melate.pdf</a>. Si el enlace no abre, usa la página de Resultados de Lotería Nacional.</p>
+    <p>2) Carga el PDF aquí y el sistema intentará extraer las combinaciones (números ganadores) tal como aparecen en el PDF.</p>
+    <input id="pdf-file" type="file" accept="application/pdf" />
+    <div style="margin-top:8px">
+      <button id="parse">Parsear PDF</button>
+      <select id="strategy" style="margin-left:8px;padding:6px;border-radius:6px">
+        <option value="freq">Favor números más frecuentes (empírico)</option>
+        <option value="rare">Favor números menos frecuentes (contrarian)</option>
+        <option value="uniform">Aleatorio uniforme</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Datos extraídos</h3>
+    <div id="status">No parseado aún.</div>
+    <div id="summary"></div>
+    <div style="margin-top:8px">
+      <button id="generate" disabled>Generar boleto (6 números)</button>
+      <button id="download-data" disabled style="margin-left:8px">Descargar datos CSV</button>
+    </div>
+    <div class="nums" id="ticket"></div>
+  </div>
+
+  <div class="card">
+    <h3>Frecuencia (números 1–56)</h3>
+    <div id="freq-table"></div>
+  </div>
+
+  <!-- pdf.js desde CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.8.162/pdf.min.js"></script>
+  <script>
+    // pdf.js worker config (cdns)
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.8.162/pdf.worker.min.js';
+
+    const fileInput = document.getElementById('pdf-file');
+    const parseBtn = document.getElementById('parse');
+    const status = document.getElementById('status');
+    const summary = document.getElementById('summary');
+    const generateBtn = document.getElementById('generate');
+    const ticketDiv = document.getElementById('ticket');
+    const freqTableDiv = document.getElementById('freq-table');
+    const downloadDataBtn = document.getElementById('download-data');
+
+    let parsedRows = []; // {sorteo, fecha, numbers:[6], extra}
+    let frequencies = Array(57).fill(0); // index 0 unused
+
+    parseBtn.addEventListener('click', async ()=>{
+      const file = fileInput.files[0];
+      if(!file){alert('Selecciona el PDF primero.');return}
+      status.textContent = 'Leyendo PDF...';
+      parsedRows = [];
+      frequencies = Array(57).fill(0);
+
+      const arrayBuffer = await file.arrayBuffer();
+      const loadingTask = pdfjsLib.getDocument({data:arrayBuffer});
+      const pdf = await loadingTask.promise;
+      let fullText = '';
+      for(let p=1;p<=pdf.numPages;p++){
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        const strings = content.items.map(i=>i.str);
+        fullText += strings.join(' ') + '\n';
+      }
+
+      // Heurística de parseo: buscar combinaciones del tipo: "2951. 16/03/2016. 17 25 35 39 42 54-36"
+      const lines = fullText.split(/\n|\r/).map(l=>l.trim()).filter(Boolean);
+      // join into a big text and search for patterns
+      const big = lines.join('\n');
+
+      // Regex para encontrar "SorteoNumero Fecha numeros..." (flexible)
+      const comboRegex = /(?:Sorteo\s*)?(\d{1,4})[\.\s\-]*\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})[\.:\s]*([0-9]{1,2}(?:\s+[0-9]{1,2}){5})(?:[-\s]*(\d{1,2}))?/g;
+      let m;
+      while((m = comboRegex.exec(big)) !== null){
+        const sorteo = m[1];
+        const fecha = m[2];
+        const numsText = m[3];
+        const extra = m[4] || '';
+        const nums = numsText.split(/\s+/).map(n=>parseInt(n,10)).filter(n=>!isNaN(n) && n>=1 && n<=56).slice(0,6);
+        if(nums.length===6){
+          parsedRows.push({sorteo, fecha, numbers:nums, extra});
+          nums.forEach(n=>frequencies[n]++);
+        }
+      }
+
+      // Fallback: intentar buscar combinaciones como 6 números seguidos en todo el texto
+      if(parsedRows.length<10){
+        const altRegex = /(?:\b)([0-9]{1,2})\s+([0-9]{1,2})\s+([0-9]{1,2})\s+([0-9]{1,2})\s+([0-9]{1,2})\s+([0-9]{1,2})(?:[-\s]*([0-9]{1,2}))?/g;
+        while((m = altRegex.exec(big))!==null){
+          const nums = [m[1],m[2],m[3],m[4],m[5],m[6]].map(x=>parseInt(x,10));
+          if(nums.every(n=>n>=1 && n<=56)){
+            parsedRows.push({sorteo:'', fecha:'', numbers:nums, extra:m[7]||''});
+            nums.forEach(n=>frequencies[n]++);
+          }
+        }
+      }
+
+      status.textContent = `Parseado: ${parsedRows.length} combinaciones encontradas.`;
+      summary.innerHTML = `<strong>Combinaciones encontradas:</strong> ${parsedRows.length}`;
+      if(parsedRows.length>0){
+        generateBtn.disabled = false;
+        downloadDataBtn.disabled = false;
+      }
+      renderFreqTable();
+    });
+
+    function renderFreqTable(){
+      // build table of number and frequency
+      let html = '<table><thead><tr><th>Número</th><th>Frecuencia</th></tr></thead><tbody>';
+      for(let i=1;i<=56;i++){
+        html += `<tr><td>${String(i).padStart(2,'0')}</td><td>${frequencies[i]}</td></tr>`;
+      }
+      html += '</tbody></table>';
+      freqTableDiv.innerHTML = html;
+    }
+
+    function weightedSampleWithoutReplacement(weights, k){
+      // weights: array index 1..56 (0 unused). returns k unique indices.
+      const w = weights.slice();
+      const result = [];
+      for(let t=0;t<k;t++){
+        const sum = w.reduce((a,b)=>a+b,0);
+        if(sum<=0) break;
+        let r = Math.random()*sum;
+        let acc = 0;
+        let pick = -1;
+        for(let i=1;i<w.length;i++){
+          acc += w[i];
+          if(r <= acc){ pick = i; break; }
+        }
+        if(pick===-1) {
+          // fallback: pick random non-zero
+          const candidates = [];
+          for(let i=1;i<w.length;i++) if(w[i]>0) candidates.push(i);
+          pick = candidates[Math.floor(Math.random()*candidates.length)];
+        }
+        result.push(pick);
+        w[pick] = 0; // remove
+      }
+      return result;
+    }
+
+    document.getElementById('generate').addEventListener('click', ()=>{
+      const strat = document.getElementById('strategy').value;
+      let weights = Array(57).fill(1); // smoothing (Laplace)
+      for(let i=1;i<=56;i++){
+        weights[i] = frequencies[i] + 1; // empirical + 1 smoothing
+      }
+      if(strat==='rare'){
+        // favor rare numbers => inverse of freq
+        const maxF = Math.max(...frequencies);
+        for(let i=1;i<=56;i++){
+          weights[i] = (maxF + 1) - frequencies[i] + 1; // ensure >0
+        }
+      } else if(strat==='uniform'){
+        for(let i=1;i<=56;i++) weights[i]=1;
+      }
+
+      const picked = weightedSampleWithoutReplacement(weights,6).sort((a,b)=>a-b);
+      ticketDiv.innerHTML = '';
+      picked.forEach(n=>{
+        const el = document.createElement('div'); el.className='num'; el.textContent=n.toString().padStart(2,'0'); ticketDiv.appendChild(el);
+      });
+    });
+
+    downloadDataBtn.addEventListener('click', ()=>{
+      if(parsedRows.length===0) return;
+      let csv = 'sorteo,fecha,n1,n2,n3,n4,n5,n6,extra\n';
+      parsedRows.forEach(r=>{
+        csv += `${r.sorteo},${r.fecha},${r.numbers.join(',')},${r.extra}\n`;
+      });
+      const blob = new Blob([csv],{type:'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href=url; a.download='melate_parsed.csv'; a.click(); URL.revokeObjectURL(url);
+    });
+
+  </script>
+</body>
+</html>
