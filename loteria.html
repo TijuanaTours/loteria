@@ -54,37 +54,53 @@
 
   <!-- pdf.js desde CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.8.162/pdf.min.js">    // Nuevo botón: Top 6 más frecuentes
-    document.addEventListener('DOMContentLoaded', ()=>{
-      const btnTop = document.getElementById('generate-top');
-      if(btnTop){
-        btnTop.addEventListener('click', ()=>{
-          const freqList = [];
-          for(let i=1;i<=56;i++) freqList.push({num:i, freq:frequencies[i]});
-          freqList.sort((a,b)=>b.freq - a.freq);
-          const picked = freqList.slice(0,6).map(x=>x.num).sort((a,b)=>a-b);
-          ticketDiv.innerHTML = '';
-          picked.forEach(n=>{
-            const el = document.createElement('div'); el.className='num'; el.textContent=n.toString().padStart(2,'0'); ticketDiv.appendChild(el);
-          });
-        });
-      }
-    });
-    function setupSortButtons(){
-      const descBtn = document.getElementById('sort-desc');
-      const ascBtn = document.getElementById('sort-asc');
+    function generateTop6(){
+      // Build list sorted by freq desc
+      const freqList = [];
+      for(let i=1;i<=56;i++) freqList.push({num:i, freq:frequencies[i]});
+      freqList.sort((a,b)=>b.freq - a.freq || a.num - b.num);
 
-      descBtn.addEventListener('click', ()=>{
-        renderFreqTableSorted(true);
-      });
-      ascBtn.addEventListener('click', ()=>{
-        renderFreqTableSorted(false);
-      });
+      // If fewer than 6 numbers have any frequency (edge), fill with highest numbers
+      if(freqList.length <= 6){
+        return freqList.map(x=>x.num).sort((a,b)=>a-b);
+      }
+
+      const cutoffFreq = freqList[5].freq; // frequency of the 6th place (0-based index)
+      // numbers strictly above cutoff
+      const above = freqList.filter(x=>x.freq > cutoffFreq).map(x=>x.num);
+      // numbers equal to cutoff
+      const tied = freqList.filter(x=>x.freq === cutoffFreq).map(x=>x.num);
+
+      let picked = [...above];
+      // Need to select remaining slots from tied (possibly many). If tied too many, pick random subset.
+      const remaining = 6 - picked.length;
+      if(remaining > 0){
+        if(tied.length <= remaining){
+          picked = picked.concat(tied);
+        } else {
+          // shuffle tied and pick needed
+          for(let i = tied.length - 1; i > 0; i--){
+            const j = Math.floor(Math.random() * (i + 1));
+            [tied[i], tied[j]] = [tied[j], tied[i]];
+          }
+          picked = picked.concat(tied.slice(0, remaining));
+        }
+      }
+
+      // If still less than 6 (shouldn't happen), fill with next most frequent
+      if(picked.length < 6){
+        for(let i=0;i<freqList.length && picked.length<6;i++){
+          if(!picked.includes(freqList[i].num)) picked.push(freqList[i].num);
+        }
+      }
+
+      return picked.sort((a,b)=>a-b);
     }
 
     function renderFreqTableSorted(desc){
       const list = [];
       for(let i=1;i<=56;i++) list.push({num:i, freq:frequencies[i]});
-      list.sort((a,b)=> desc ? b.freq - a.freq : a.freq - b.freq);
+      list.sort((a,b)=> desc ? b.freq - a.freq || a.num - b.num : a.freq - b.freq || a.num - b.num);
 
       let html = '<table><thead><tr><th>Número</th><th>Frecuencia</th></tr></thead><tbody>';
       list.forEach(x=>{
@@ -93,6 +109,44 @@
       html += '</tbody></table>';
       freqTableDiv.innerHTML = html;
     }
+
+    function setupSortButtons(){
+      const descBtn = document.getElementById('sort-desc');
+      const ascBtn = document.getElementById('sort-asc');
+      if(descBtn){
+        descBtn.addEventListener('click', ()=>{
+          renderFreqTableSorted(true);
+        });
+      }
+      if(ascBtn){
+        ascBtn.addEventListener('click', ()=>{
+          renderFreqTableSorted(false);
+        });
+      }
+    }
+
+    // attach generate-top and setupSortButtons after each parse (and also on DOM load)
+    document.addEventListener('DOMContentLoaded', ()=>{
+      setupSortButtons();
+      const btnTop = document.getElementById('generate-top');
+      if(btnTop){
+        btnTop.addEventListener('click', ()=>{
+          const picked = generateTop6();
+          ticketDiv.innerHTML = '';
+          picked.forEach(n=>{
+            const el = document.createElement('div'); el.className='num'; el.textContent=n.toString().padStart(2,'0'); ticketDiv.appendChild(el);
+          });
+        });
+      }
+    });
+
+    // ensure sort buttons are set up after parsing as frequencies change
+    const originalRenderFreqTable = renderFreqTable;
+    renderFreqTable = function(){
+      originalRenderFreqTable();
+      setupSortButtons();
+    };
+
 </script>
   <script>
     // pdf.js worker config (cdns)
