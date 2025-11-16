@@ -45,6 +45,10 @@
 
   <div class="card">
     <h3>Frecuencia (números 1–56)</h3>
+    <div>
+      <button id="sort-desc">Ordenar por frecuencia (Mayor a menor)</button>
+      <button id="sort-asc" style="margin-left:8px">Ordenar por frecuencia (Menor a mayor)</button>
+    </div>
     <div id="freq-table"></div>
   </div>
 
@@ -65,6 +69,30 @@
         });
       }
     });
+    function setupSortButtons(){
+      const descBtn = document.getElementById('sort-desc');
+      const ascBtn = document.getElementById('sort-asc');
+
+      descBtn.addEventListener('click', ()=>{
+        renderFreqTableSorted(true);
+      });
+      ascBtn.addEventListener('click', ()=>{
+        renderFreqTableSorted(false);
+      });
+    }
+
+    function renderFreqTableSorted(desc){
+      const list = [];
+      for(let i=1;i<=56;i++) list.push({num:i, freq:frequencies[i]});
+      list.sort((a,b)=> desc ? b.freq - a.freq : a.freq - b.freq);
+
+      let html = '<table><thead><tr><th>Número</th><th>Frecuencia</th></tr></thead><tbody>';
+      list.forEach(x=>{
+        html += `<tr><td>${String(x.num).padStart(2,'0')}</td><td>${x.freq}</td></tr>`;
+      });
+      html += '</tbody></table>';
+      freqTableDiv.innerHTML = html;
+    }
 </script>
   <script>
     // pdf.js worker config (cdns)
@@ -139,6 +167,7 @@
         downloadDataBtn.disabled = false;
       }
       renderFreqTable();
+      setupSortButtons();
     });
 
     function renderFreqTable(){
